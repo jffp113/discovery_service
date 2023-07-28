@@ -1,5 +1,5 @@
-use tokio::io::{AsyncReadExt, Result, AsyncWriteExt, BufReader};
 use async_trait::async_trait;
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, Result};
 
 #[async_trait]
 pub trait FromAsyncReader<T: Send>: Sized {
@@ -17,7 +17,7 @@ pub trait FromAsyncReader<T: Send>: Sized {
 }
 
 #[async_trait]
-pub trait Writable<T: Send> : Sized + Send {
+pub trait Writable<T: Send>: Sized + Send {
     async fn write(&self, writer: &mut T) -> Result<()>;
 }
 
@@ -37,16 +37,16 @@ impl<T: AsyncReadExt + Unpin + Send> FromAsyncReader<T> for Message {
     async fn from(reader: &mut T) -> Result<Message> {
         let header: Header = FromAsyncReader::from(reader).await?;
         let questions = Question::from_n(reader, header.questions as usize).await?;
-        let answers = Record::from_n(reader,header.awnsers as usize).await?;
-        let authority = Record::from_n(reader,header.authority_entries as usize).await?;
-        let resources = Record::from_n(reader,header.ressource_entries as usize).await?;
-        
-        return Ok(Message{
+        let answers = Record::from_n(reader, header.awnsers as usize).await?;
+        let authority = Record::from_n(reader, header.authority_entries as usize).await?;
+        let resources = Record::from_n(reader, header.ressource_entries as usize).await?;
+
+        return Ok(Message {
             header,
             questions,
             answers,
             authority,
-            resources
+            resources,
         });
     }
 }
@@ -65,9 +65,11 @@ impl<T: AsyncWriteExt + Unpin + Send> Writable<T> for Message {
 }
 
 #[async_trait]
-impl<T,W> Writable<T> for Vec<W>
-where T: AsyncWriteExt + Send, W: Writable<T> + Send + Sync {
-
+impl<T, W> Writable<T> for Vec<W>
+where
+    T: AsyncWriteExt + Send,
+    W: Writable<T> + Send + Sync,
+{
     async fn write(&self, writer: &mut T) -> Result<()> {
         for elm in self {
             elm.write(writer).await?;
@@ -91,12 +93,12 @@ impl ResultCode {
     fn from(num: u8) -> ResultCode {
         match num {
             0 => ResultCode::NOERROR,
-            1 =>  ResultCode::FORMERR,
+            1 => ResultCode::FORMERR,
             2 => ResultCode::SERVFAIL,
             3 => ResultCode::NXDOMAIN,
             4 => ResultCode::NOTIMP,
             5 => ResultCode::REFUSED,
-            _ => ResultCode::UNKNOWN
+            _ => ResultCode::UNKNOWN,
         }
     }
 }
@@ -110,7 +112,7 @@ pub struct Header {
     questions: u16,
     awnsers: u16,
     authority_entries: u16,
-    ressource_entries: u16
+    ressource_entries: u16,
 }
 
 impl Header {
@@ -130,11 +132,11 @@ impl Header {
     }
 
     pub fn op_code(&self) -> u8 {
-        ((self.flags & 0b0111100000000000) >> 11) as u8 
+        ((self.flags & 0b0111100000000000) >> 11) as u8
     }
 
     pub fn is_authoritative(&self) -> bool {
-        (self.flags & 0b0000010000000000) >> 10 == 1 
+        (self.flags & 0b0000010000000000) >> 10 == 1
     }
 
     pub fn is_truncated(&self) -> bool {
@@ -148,7 +150,7 @@ impl Header {
     pub fn is_recursion_available(&self) -> bool {
         (self.flags & 0b0000000010000000) >> 7 == 1
     }
-    
+
     pub fn result_code(&self) -> ResultCode {
         let result_code = (self.flags & 0b0000000000001111) as u8;
         ResultCode::from(result_code)
@@ -159,7 +161,7 @@ impl Header {
 impl<T: AsyncReadExt + Unpin + Send> FromAsyncReader<T> for Header {
     async fn from(reader: &mut T) -> Result<Header> {
         let mut header = Header::new();
-        
+
         header.id = reader.read_u16().await?;
         header.flags = reader.read_u16().await?;
         header.questions = reader.read_u16().await?;
@@ -188,8 +190,7 @@ impl<T: AsyncWriteExt + Unpin + Send> Writable<T> for Header {
 enum Type {
     A,
     AAAA,
-    UNKNOWN
-    // TODO there are more
+    UNKNOWN, // TODO there are more
 }
 
 impl Type {
@@ -197,7 +198,7 @@ impl Type {
         match value {
             1 => Type::A,
             28 => Type::AAAA,
-            _ => Type::UNKNOWN, 
+            _ => Type::UNKNOWN,
         }
     }
 
@@ -220,8 +221,7 @@ enum Class {
     RESERVED,
     IN,
     QCLASSNONE,
-    QCLASSANY
-    // TODO there are more
+    QCLASSANY, // TODO there are more
 }
 
 impl Class {
@@ -231,7 +231,7 @@ impl Class {
             1 => Class::IN,
             254 => Class::QCLASSNONE,
             255 => Class::QCLASSANY,
-            _ => Class::UNKNOWN, 
+            _ => Class::UNKNOWN,
         }
     }
 
@@ -250,19 +250,18 @@ impl Class {
     }
 }
 
-
 #[derive(Debug)]
 struct Question {
     name: String,
     r#type: Type,
-    class: Class
+    class: Class,
 }
 
 impl Question {
     fn new() -> Question {
         Question {
             name: String::new(),
-            r#type: Type::UNKNOWN ,
+            r#type: Type::UNKNOWN,
             class: Class::UNKNOWN,
         }
     }
@@ -280,7 +279,7 @@ impl<T: AsyncReadExt + Unpin + Send> FromAsyncReader<T> for Question {
 
         let class = reader.read_u16().await?;
         question.class = Class::from(class);
-       
+
         Ok(question)
     }
 }
@@ -301,9 +300,8 @@ struct Record {
     r#type: Type,
     class: Class,
     ttl: u32,
-    len: u16
+    len: u16,
 }
-
 
 impl Record {
     fn new() -> Record {
@@ -312,7 +310,7 @@ impl Record {
             r#type: Type::UNKNOWN,
             class: Class::UNKNOWN,
             ttl: 0,
-            len: 0
+            len: 0,
         }
     }
 }
@@ -358,7 +356,9 @@ impl<T: AsyncWriteExt + Unpin + Send> Writable<T> for Record {
  * 0x00 -> End of this name
  */
 pub async fn read_dns_encoded_name<T>(reader: &mut T, str: &mut String) -> Result<()>
-where T: AsyncReadExt + Unpin + Send {
+where
+    T: AsyncReadExt + Unpin + Send,
+{
     const SPLIT: char = '.';
 
     while let Ok(lenght) = reader.read_u8().await {
@@ -381,9 +381,10 @@ where T: AsyncReadExt + Unpin + Send {
     Ok(())
 }
 
-
 pub async fn write_dns_encoded_name<T>(writer: &mut T, str: &str) -> Result<()>
-where T: AsyncWriteExt + Unpin + Send {
+where
+    T: AsyncWriteExt + Unpin + Send,
+{
     const SPLIT: char = '.';
 
     for word in str.split(SPLIT) {
@@ -397,21 +398,23 @@ where T: AsyncWriteExt + Unpin + Send {
     Ok(())
 }
 
-
 #[cfg(test)]
 mod test {
-    use tokio::io::{BufReader, BufWriter};
+    use tokio::io::BufReader;
 
-    use crate::core::message::{read_dns_encoded_name, Message, Type, Class, ResultCode, FromAsyncReader, Writable};
-
-    use super::write_dns_encoded_name;
+    use super::{
+        read_dns_encoded_name, write_dns_encoded_name, Class, FromAsyncReader, Message, ResultCode,
+        Type, Writable,
+    };
 
     #[tokio::test]
     async fn deserialize_request_message() {
-        let mut file = tokio::fs::File::open("src/core/test/query_packet.txt").await.unwrap();
+        let mut file = tokio::fs::File::open("./src/core/dns/test/query_packet.txt")
+            .await
+            .unwrap();
 
-        let message : Message = FromAsyncReader::from(&mut file).await.unwrap();
-        
+        let message: Message = FromAsyncReader::from(&mut file).await.unwrap();
+
         // Message should have id 5475 and one question
         assert_eq!(message.header.id, 5475);
         assert_eq!(message.header.questions, 1);
@@ -440,42 +443,43 @@ mod test {
 
     #[tokio::test]
     async fn deseliaze_request_message() {
-        let expects = tokio::fs::read("src/core/test/query_packet.txt").await.unwrap();
+        let expects = tokio::fs::read("./src/core/dns/test/query_packet.txt")
+            .await
+            .unwrap();
         let mut reader = BufReader::new(&*expects);
-         
-        let message : Message = FromAsyncReader::from(&mut reader).await.unwrap();
+
+        let message: Message = FromAsyncReader::from(&mut reader).await.unwrap();
 
         let mut result = Vec::new();
         message.write(&mut result).await.unwrap();
-        
-        assert_eq!(expects, result); 
+
+        assert_eq!(expects, result);
         println!("{:?}", message);
     }
 
     #[tokio::test]
     async fn test_read_qname() {
-        let hex : Vec<u8> = vec![0x03, 0x77, 0x77, 0x77, 0x0c, 0x6e, 0x6f,
-                                 0x72, 0x74, 0x68, 0x65, 0x61, 0x73, 0x74,
-                                 0x65, 0x72, 0x6e, 0x03, 0x65, 0x64, 0x75,
-                                 0x00];
-
+        let hex: Vec<u8> = vec![
+            0x03, 0x77, 0x77, 0x77, 0x0c, 0x6e, 0x6f, 0x72, 0x74, 0x68, 0x65, 0x61, 0x73, 0x74,
+            0x65, 0x72, 0x6e, 0x03, 0x65, 0x64, 0x75, 0x00,
+        ];
 
         let mut reader = tokio::io::BufReader::new(&*hex);
         let mut buff = String::new();
         read_dns_encoded_name(&mut reader, &mut buff).await.unwrap();
-        
+
         assert_eq!(buff, "www.northeastern.edu")
     }
 
     #[tokio::test]
     async fn test_write_qname() {
         let given = "www.northeastern.edu";
-        let expects : Vec<u8> = vec![0x03, 0x77, 0x77, 0x77, 0x0c, 0x6e, 0x6f,
-                                0x72, 0x74, 0x68, 0x65, 0x61, 0x73, 0x74,
-                                0x65, 0x72, 0x6e, 0x03, 0x65, 0x64, 0x75,
-                                0x00];
+        let expects: Vec<u8> = vec![
+            0x03, 0x77, 0x77, 0x77, 0x0c, 0x6e, 0x6f, 0x72, 0x74, 0x68, 0x65, 0x61, 0x73, 0x74,
+            0x65, 0x72, 0x6e, 0x03, 0x65, 0x64, 0x75, 0x00,
+        ];
 
-        let mut result  = Vec::<u8>::new();
+        let mut result = Vec::<u8>::new();
         write_dns_encoded_name(&mut result, given).await.unwrap();
         assert_eq!(result, expects);
     }

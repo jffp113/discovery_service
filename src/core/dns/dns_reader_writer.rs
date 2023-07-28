@@ -1,18 +1,14 @@
-use tokio::io::{AsyncReadExt, Result, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, Result};
 
-use super::message::{Message, Header, FromAsyncReader, Writable};
-
+use super::message::{FromAsyncReader, Header, Message, Writable};
 
 struct DnsReader<T> {
-    reader: T
+    reader: T,
 }
 
 impl<T: AsyncReadExt + Unpin + Send> DnsReader<T> {
-
     pub fn from(reader: T) -> DnsReader<T> {
-        DnsReader{
-            reader
-        }
+        DnsReader { reader }
     }
 
     pub async fn read(&mut self) -> Result<Message> {
@@ -21,28 +17,25 @@ impl<T: AsyncReadExt + Unpin + Send> DnsReader<T> {
     }
 }
 
-
-struct  DnsWriter<T> {
-    writer: T
+struct DnsWriter<T> {
+    writer: T,
 }
 
 impl<T: AsyncWriteExt + Unpin + Send> DnsWriter<T> {
-     pub fn from(writer: T) -> DnsWriter<T> {
-        DnsWriter {
-            writer
-        }
-     }
+    pub fn from(writer: T) -> DnsWriter<T> {
+        DnsWriter { writer }
+    }
 
-     pub async fn write<W: Writable<T>>(&mut self, w: W) -> Result<()> {
+    pub async fn write<W: Writable<T>>(&mut self, w: W) -> Result<()> {
         w.write(&mut self.writer).await?;
         Ok(())
-     }
+    }
 }
 //TODO packet writer
 
 #[cfg(test)]
-mod test{
-/*     use tokio::fs::File;
+mod test {
+    /*     use tokio::fs::File;
     use super::UdpPacketReader;
 
 
