@@ -2,31 +2,38 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt, Result};
 
 use super::message::{FromAsyncReader, Header, Message, Writable};
 
-struct DnsReader<T> {
+pub(crate) struct DnsReader<T> {
     reader: T,
 }
 
-impl<T: AsyncReadExt + Unpin + Send> DnsReader<T> {
-    pub fn from(reader: T) -> DnsReader<T> {
-        DnsReader { reader }
-    }
 
+impl<T: AsyncReadExt + Unpin + Send> From<T> for DnsReader<T> {
+    fn from(value: T) -> Self {
+        DnsReader {
+            reader: value
+        }
+    }
+}
+
+impl<T: AsyncReadExt + Unpin + Send> DnsReader<T> {
     pub async fn read(&mut self) -> Result<Message> {
         let mut reader = &mut self.reader;
         FromAsyncReader::from(&mut reader).await
     }
 }
 
-struct DnsWriter<T> {
+pub(crate) struct DnsWriter<T> {
     writer: T,
 }
 
-impl<T: AsyncWriteExt + Unpin + Send> DnsWriter<T> {
-    pub fn from(writer: T) -> DnsWriter<T> {
-        DnsWriter { writer }
+impl<T: AsyncWriteExt + Unpin + Send> From<T> for DnsWriter<T> {
+    fn from(value: T) -> Self {
+        DnsWriter { writer: value }
     }
+}
 
-    pub async fn write<W: Writable<T>>(&mut self, w: W) -> Result<()> {
+impl<T: AsyncWriteExt + Unpin + Send> DnsWriter<T> {
+    pub(crate) async fn write<W: Writable<T>>(&mut self, w: W) -> Result<()> {
         w.write(&mut self.writer).await?;
         Ok(())
     }

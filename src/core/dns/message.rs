@@ -1,3 +1,5 @@
+use std::{num, net::Ipv4Addr};
+
 use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, Result};
 
@@ -22,12 +24,12 @@ pub trait Writable<T: Send>: Sized + Send {
 }
 
 #[derive(Debug)]
-pub struct Message {
-    header: Header,
-    questions: Vec<Question>,
-    answers: Vec<Record>,
-    authority: Vec<Record>,
-    resources: Vec<Record>,
+pub(crate) struct Message {
+    pub(crate) header: Header,
+    pub(crate) questions: Vec<Question>,
+    pub(crate) answers: Vec<Record>,
+    pub(crate) authority: Vec<Record>,
+    pub(crate) resources: Vec<Record>,
 }
 
 impl Message {}
@@ -79,7 +81,7 @@ where
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum ResultCode {
+pub(crate) enum ResultCode {
     NOERROR = 0,
     FORMERR = 1,
     SERVFAIL = 2,
@@ -101,21 +103,34 @@ impl ResultCode {
             _ => ResultCode::UNKNOWN,
         }
     }
+
+    pub(crate) fn to(&self) -> u8 {
+        match self {
+            ResultCode::NOERROR => 0,
+            ResultCode::FORMERR => 1,
+            ResultCode::SERVFAIL => 2,
+            ResultCode::NXDOMAIN => 3,
+            ResultCode::NOTIMP => 4,
+            ResultCode::REFUSED => 5,
+            ResultCode::UNKNOWN => 6,
+        }
+    } 
 }
 
 #[derive(Debug)]
 pub struct Header {
-    id: u16,
+    pub id: u16,
 
-    flags: u16, //Split into multiple fields
+    pub flags: u16, //Split into multiple fields
 
-    questions: u16,
-    awnsers: u16,
-    authority_entries: u16,
-    ressource_entries: u16,
+    pub questions: u16,
+    pub awnsers: u16,
+    pub authority_entries: u16,
+    pub ressource_entries: u16,
 }
 
 impl Header {
+    
     fn new() -> Header {
         Header {
             id: 0,
@@ -127,31 +142,31 @@ impl Header {
         }
     }
 
-    pub fn is_query(&self) -> bool {
+    pub(crate) fn is_query(&self) -> bool {
         (self.flags & 0b1000000000000000) >> 15 == 0
     }
 
-    pub fn op_code(&self) -> u8 {
+    pub(crate) fn op_code(&self) -> u8 {
         ((self.flags & 0b0111100000000000) >> 11) as u8
     }
 
-    pub fn is_authoritative(&self) -> bool {
+    pub(crate) fn is_authoritative(&self) -> bool {
         (self.flags & 0b0000010000000000) >> 10 == 1
     }
 
-    pub fn is_truncated(&self) -> bool {
+    pub(crate) fn is_truncated(&self) -> bool {
         (self.flags & 0b0000001000000000) >> 9 == 1
     }
 
-    pub fn is_recursion_desired(&self) -> bool {
+    pub(crate) fn is_recursion_desired(&self) -> bool {
         (self.flags & 0b0000000100000000) >> 8 == 1
     }
 
-    pub fn is_recursion_available(&self) -> bool {
+    pub(crate) fn is_recursion_available(&self) -> bool {
         (self.flags & 0b0000000010000000) >> 7 == 1
     }
 
-    pub fn result_code(&self) -> ResultCode {
+    pub(crate) fn result_code(&self) -> ResultCode {
         let result_code = (self.flags & 0b0000000000001111) as u8;
         ResultCode::from(result_code)
     }
@@ -187,18 +202,18 @@ impl<T: AsyncWriteExt + Unpin + Send> Writable<T> for Header {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-enum Type {
+pub enum QueryType {
     A,
     AAAA,
     UNKNOWN, // TODO there are more
 }
 
-impl Type {
-    fn from(value: u16) -> Type {
+impl QueryType {
+    fn from(value: u16) -> QueryType {
         match value {
-            1 => Type::A,
-            28 => Type::AAAA,
-            _ => Type::UNKNOWN,
+            1 => QueryType::A,
+            28 => QueryType::AAAA,
+            _ => QueryType::UNKNOWN,
         }
     }
 
@@ -208,15 +223,15 @@ impl Type {
 
     fn to_u16(&self) -> u16 {
         match self {
-            Type::A => 1,
-            Type::AAAA => 28,
-            Type::UNKNOWN => 0,
+            QueryType::A => 1,
+            QueryType::AAAA => 28,
+            QueryType::UNKNOWN => 0,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-enum Class {
+pub enum Class {
     UNKNOWN,
     RESERVED,
     IN,
@@ -251,17 +266,17 @@ impl Class {
 }
 
 #[derive(Debug)]
-struct Question {
-    name: String,
-    r#type: Type,
-    class: Class,
+pub(crate) struct Question {
+    pub name: String,
+    pub r#type: QueryType,
+    pub class: Class,
 }
 
 impl Question {
     fn new() -> Question {
         Question {
             name: String::new(),
-            r#type: Type::UNKNOWN,
+            r#type: QueryType::UNKNOWN,
             class: Class::UNKNOWN,
         }
     }
@@ -275,7 +290,7 @@ impl<T: AsyncReadExt + Unpin + Send> FromAsyncReader<T> for Question {
         read_dns_encoded_name(reader, &mut question.name).await?;
 
         let r#type = reader.read_u16().await?;
-        question.r#type = Type::from(r#type);
+        question.r#type = QueryType::from(r#type);
 
         let class = reader.read_u16().await?;
         question.class = Class::from(class);
@@ -295,22 +310,29 @@ impl<T: AsyncWriteExt + Unpin + Send> Writable<T> for Question {
 }
 
 #[derive(Debug)]
-struct Record {
-    name: String,
-    r#type: Type,
-    class: Class,
-    ttl: u32,
-    len: u16,
+pub(crate) enum Record {
+    UNKNOWN {
+        name: String,
+        r#type: u16,
+        class: Class,
+        ttl: u32,
+        len: u16
+    },
+    A {
+        name: String,
+        class: Class,
+        addr: Ipv4Addr,
+        ttl: u32
+    }
 }
 
 impl Record {
-    fn new() -> Record {
-        Record {
-            name: String::new(),
-            r#type: Type::UNKNOWN,
-            class: Class::UNKNOWN,
-            ttl: 0,
-            len: 0,
+    pub(crate) fn new_type_a(name: String, addr: Ipv4Addr, ttl: u32) -> Record {
+        Record::A {
+            name: name,
+            class: Class::IN,
+            ttl,
+            addr,
         }
     }
 }
@@ -318,29 +340,74 @@ impl Record {
 #[async_trait]
 impl<T: AsyncReadExt + Unpin + Send> FromAsyncReader<T> for Record {
     async fn from(reader: &mut T) -> Result<Record> {
-        let mut record = Record::new();
+        let mut name = String::new();
+        read_dns_encoded_name(reader, &mut name).await?;
 
-        read_dns_encoded_name(reader, &mut record.name).await?;
-
-        let r#type = reader.read_u16().await?;
-        record.r#type = Type::from(r#type);
+        let qtype_u16 = reader.read_u16().await?;
+        let qtype = QueryType::from(qtype_u16);
         let class = reader.read_u16().await?;
-        record.class = Class::from(class);
-        record.ttl = reader.read_u32().await?;
-        record.len = reader.read_u16().await?;
+        let class = Class::from(class);
+        let ttl = reader.read_u32().await?;
+        let len = reader.read_u16().await?;
 
-        Ok(record)
+        let res = match qtype {
+            QueryType::A => {
+                let a = reader.read_u8().await?;
+                let b = reader.read_u8().await?;
+                let c = reader.read_u8().await?;
+                let d = reader.read_u8().await?;
+                let addr = Ipv4Addr::new(a,b,c,d);
+
+                Self::A {
+                    name,
+                    class,
+                    addr,
+                    ttl
+                }
+            },
+            qtype => Self::UNKNOWN {
+                name,
+                r#type: qtype_u16,
+                class,
+                ttl,
+                len
+            },
+        };
+
+        Ok(res)
     }
 }
+
 
 #[async_trait]
 impl<T: AsyncWriteExt + Unpin + Send> Writable<T> for Record {
     async fn write(&self, writer: &mut T) -> Result<()> {
-        write_dns_encoded_name(writer, &self.name).await?;
-        writer.write_u16(self.r#type.to_u16()).await?;
-        writer.write_u16(self.class.to_u16()).await?;
-        writer.write_u32(self.ttl).await?;
-        writer.write_u16(self.len).await?;
+        match self {
+            Record::UNKNOWN { name, r#type, class, ttl,len } => {
+                write_dns_encoded_name(writer, name).await?;
+                writer.write_u16(*r#type).await?;
+                writer.write_u16(class.to_u16()).await?;
+                writer.write_u32(*ttl).await?;
+                writer.write_u16(*len).await?;
+
+            },
+            Record::A { name, class, addr, ttl } => {
+                write_dns_encoded_name(writer, name).await?;
+                writer.write_u16(1).await?;
+                writer.write_u16(class.to_u16()).await?;
+                writer.write_u32(*ttl).await?;
+                writer.write_u16(4).await?;
+                
+
+                let bytes = addr.octets();
+                writer.write_u8(bytes[0]).await?;
+                writer.write_u8(bytes[1]).await?;
+                writer.write_u8(bytes[2]).await?;
+                writer.write_u8(bytes[3]).await?;
+            },
+        };
+
+        
         Ok(())
     }
 }
@@ -404,7 +471,7 @@ mod test {
 
     use super::{
         read_dns_encoded_name, write_dns_encoded_name, Class, FromAsyncReader, Message, ResultCode,
-        Type, Writable,
+        QueryType, Writable,
     };
 
     #[tokio::test]
@@ -435,7 +502,7 @@ mod test {
         // Question should be for google.com of type A and class IN
         let question = &message.questions[0];
         assert_eq!(question.name, "google.com");
-        assert_eq!(question.r#type, Type::A);
+        assert_eq!(question.r#type, QueryType::A);
         assert_eq!(question.class, Class::IN);
 
         println!("{:?}", message);
